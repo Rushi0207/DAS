@@ -1,0 +1,293 @@
+// Prisma schema — DAS (Digital Attendance System)
+// Database : PostgreSQL via Supabase
+// Generator: prisma-client-js
+//
+// Entity hierarchy (from docs/03-DATABASE-DESIGN.md):
+//
+//   roles
+//     └─ users
+//          └─ teachers
+//
+//   classes
+//     ├─ enrollments ── students
+//     └─ class_subjects ── subjects
+//              ├─ teacher_assignments ── teachers
+//              └─ attendance_sessions
+//                       └─ attendance_records ── students
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ROLES
+// Three roles: Administrator, Class Advisor, Subject Teacher
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Role {
+  id   Int    @id @default(autoincrement())
+  name String @unique // "Administrator" | "Class Advisor" | "Subject Teacher"
+
+  users User[]
+
+  @@map("roles")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// USERS
+// Central identity record for all system actors.
+// Passwords are stored as bcrypt hashes — never plaintext.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model User {
+  id           Int      @id @default(autoincrement())
+  username     String   @unique
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  isActive     Boolean  @default(true) @map("is_active")
+  roleId       Int      @map("role_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  role           Role           @relation(fields: [roleId], references: [id])
+  teacher        Teacher?
+  passwordResets PasswordReset[]
+
+  @@map("users")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TEACHERS
+// Profile record linked 1-to-1 with a User.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Teacher {
+  id          Int      @id @default(autoincrement())
+  userId      Int      @unique @map("user_id")
+  firstName   String   @map("first_name")
+  lastName    String   @map("last_name")
+  employeeId  String   @unique @map("employee_id") // business identifier
+  department  String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  user                User                 @relation(fields: [userId], references: [id])
+  teacherAssignments  TeacherAssignment[]
+  attendanceSessions  AttendanceSession[]
+
+  @@map("teachers")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STUDENTS
+// Independent entity (no user login in current scope).
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Student {
+  id          Int      @id @default(autoincrement())
+  firstName   String   @map("first_name")
+  lastName    String   @map("last_name")
+  studentId   String   @unique @map("student_id") // college-issued ID
+  email       String?  @unique
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  enrollments        Enrollment[]
+  attendanceRecords  AttendanceRecord[]
+
+  @@map("students")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CLASSES
+// e.g. "TYCS-A 2025-26"
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Class {
+  id           Int      @id @default(autoincrement())
+  name         String                        // e.g. "TYCS-A"
+  academicYear String   @map("academic_year") // e.g. "2025-26"
+  division     String?                       // e.g. "A", "B"
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  enrollments    Enrollment[]
+  classSubjects  ClassSubject[]
+
+  // A class name + academic year combination must be unique
+  @@unique([name, academicYear], name: "uq_class_name_year")
+  @@map("classes")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SUBJECTS
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Subject {
+  id        Int      @id @default(autoincrement())
+  name      String
+  code      String   @unique // e.g. "CS301"
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  classSubjects ClassSubject[]
+
+  @@map("subjects")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CLASS_SUBJECTS
+// A subject offered to a specific class for a specific academic year.
+// Rule 6: A class-subject identifies a subject offered to a class for an
+//         academic year.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model ClassSubject {
+  id           Int      @id @default(autoincrement())
+  classId      Int      @map("class_id")
+  subjectId    Int      @map("subject_id")
+  academicYear String   @map("academic_year")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  class              Class               @relation(fields: [classId], references: [id])
+  subject            Subject             @relation(fields: [subjectId], references: [id])
+  teacherAssignments TeacherAssignment[]
+  attendanceSessions AttendanceSession[]
+
+  // The same subject cannot be offered to the same class twice in one year
+  @@unique([classId, subjectId, academicYear], name: "uq_class_subject_year")
+  @@map("class_subjects")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TEACHER_ASSIGNMENTS
+// Links a teacher to a class-subject (authorises them to take attendance).
+// Rule 7: Teacher assignments reference valid teachers and class-subjects.
+// Rule 12: The backend verifies teacher authorization for the class-subject.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model TeacherAssignment {
+  id             Int      @id @default(autoincrement())
+  teacherId      Int      @map("teacher_id")
+  classSubjectId Int      @map("class_subject_id")
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  teacher      Teacher      @relation(fields: [teacherId], references: [id])
+  classSubject ClassSubject @relation(fields: [classSubjectId], references: [id])
+
+  // A teacher can only be assigned to the same class-subject once
+  @@unique([teacherId, classSubjectId], name: "uq_teacher_class_subject")
+  @@map("teacher_assignments")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ENROLLMENTS
+// Links a student to a class for an academic year.
+// Rule 5: Roll number is unique within the same class and academic year.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Enrollment {
+  id           Int      @id @default(autoincrement())
+  studentId    Int      @map("student_id")
+  classId      Int      @map("class_id")
+  academicYear String   @map("academic_year")
+  rollNumber   String   @map("roll_number") // unique per class + year
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  student Student @relation(fields: [studentId], references: [id])
+  class   Class   @relation(fields: [classId], references: [id])
+
+  // A student can only enroll in a class once per academic year
+  @@unique([studentId, classId, academicYear], name: "uq_enrollment_student_class_year")
+  // Roll numbers are unique within a class and year
+  @@unique([classId, academicYear, rollNumber], name: "uq_enrollment_roll_class_year")
+  @@map("enrollments")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ATTENDANCE_SESSIONS
+// One session = one conducted lecture for a class-subject.
+// Rule 8: An attendance session references one class-subject and teacher.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model AttendanceSession {
+  id             Int      @id @default(autoincrement())
+  classSubjectId Int      @map("class_subject_id")
+  teacherId      Int      @map("teacher_id")
+  sessionDate    DateTime @map("session_date") @db.Date
+  startTime      DateTime? @map("start_time") @db.Time(0)
+  notes          String?
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  classSubject       ClassSubject       @relation(fields: [classSubjectId], references: [id])
+  teacher            Teacher            @relation(fields: [teacherId], references: [id])
+  attendanceRecords  AttendanceRecord[]
+
+  @@map("attendance_sessions")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ATTENDANCE_RECORDS
+// One record per student per session.
+// Rule 9:  An attendance record references one session and student.
+// Rule 10: A student has at most one record per session.
+// Rule 11: Attendance may only be recorded for enrolled students.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model AttendanceRecord {
+  id        Int              @id @default(autoincrement())
+  sessionId Int              @map("session_id")
+  studentId Int              @map("student_id")
+  status    AttendanceStatus // PRESENT | ABSENT
+  createdAt DateTime         @default(now()) @map("created_at")
+  updatedAt DateTime         @updatedAt @map("updated_at")
+
+  session AttendanceSession @relation(fields: [sessionId], references: [id])
+  student Student           @relation(fields: [studentId], references: [id])
+
+  // Rule 10: at most one record per session+student pair
+  @@unique([sessionId, studentId], name: "uq_attendance_session_student")
+  @@map("attendance_records")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PASSWORD_RESETS
+// Token-based password reset flow (TBD — schema placeholder).
+// ─────────────────────────────────────────────────────────────────────────────
+
+model PasswordReset {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @map("user_id")
+  token     String   @unique
+  expiresAt DateTime @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("password_resets")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+}
