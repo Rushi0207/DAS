@@ -80,6 +80,7 @@ model Teacher {
   user                User                 @relation(fields: [userId], references: [id])
   teacherAssignments  TeacherAssignment[]
   attendanceSessions  AttendanceSession[]
+  advisorClasses      Class[]              @relation("ClassAdvisor")
 
   @@map("teachers")
 }
@@ -115,14 +116,15 @@ model Class {
   name         String                        // e.g. "TYCS-A"
   academicYear String   @map("academic_year") // e.g. "2025-26"
   division     String?                       // e.g. "A", "B"
+  advisorId    Int?     @map("advisor_id")   // optional assigned Class Advisor
   isActive     Boolean  @default(true) @map("is_active")
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
-  enrollments    Enrollment[]
-  classSubjects  ClassSubject[]
+  advisor       Teacher?       @relation("ClassAdvisor", fields: [advisorId], references: [id])
+  enrollments   Enrollment[]
+  classSubjects ClassSubject[]
 
-  // A class name + academic year combination must be unique
   @@unique([name, academicYear], name: "uq_class_name_year")
   @@map("classes")
 }

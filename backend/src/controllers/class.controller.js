@@ -10,6 +10,10 @@ const createClassSchema = z.object({
     .string({ required_error: 'academicYear is required' })
     .regex(/^\d{4}-\d{2,4}$/, 'academicYear must be in format YYYY-YY or YYYY-YYYY (e.g. 2025-26)'),
   division: z.string().max(10).optional(),
+  advisorId: z
+    .number({ invalid_type_error: 'advisorId must be a number' })
+    .int().positive()
+    .optional(),
 });
 
 const updateClassSchema = z.object({
@@ -17,6 +21,7 @@ const updateClassSchema = z.object({
   academicYear: z.string().regex(/^\d{4}-\d{2,4}$/, 'academicYear must be in format YYYY-YY or YYYY-YYYY').optional(),
   division:     z.string().max(10).nullable().optional(),
   isActive:     z.boolean({ invalid_type_error: 'isActive must be a boolean' }).optional(),
+  advisorId:    z.number({ invalid_type_error: 'advisorId must be a number' }).int().positive().nullable().optional(),
 }).refine((d) => Object.keys(d).length > 0, { message: 'At least one field must be provided' });
 
 function validate(schema, data) {
@@ -38,7 +43,6 @@ async function getAll(req, res, next) {
     const filters = {};
     if (req.query.academicYear) filters.academicYear = req.query.academicYear;
     if (req.query.isActive !== undefined) filters.isActive = req.query.isActive === 'true';
-
     const classes = await classService.getAllClasses(filters);
     res.status(200).json({ success: true, data: { classes } });
   } catch (err) { next(err); }

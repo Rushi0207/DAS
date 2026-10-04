@@ -35,7 +35,7 @@ router.get(
  */
 router.post(
   '/',
-  authorize('Administrator'),
+  authorize('Administrator', 'Class Advisor'),
   subjectController.create,
 );
 

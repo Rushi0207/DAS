@@ -23,7 +23,7 @@ router.get(
 );
 router.post(
   '/:classSubjectId/assignments',
-  authorize('Administrator'),
+  authorize('Administrator', 'Class Advisor'),
   assignmentController.create,
 );
 

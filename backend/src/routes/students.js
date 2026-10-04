@@ -27,6 +27,9 @@ router.get('/:id', authorize('Administrator', 'Class Advisor', 'Subject Teacher'
 /** POST /api/v1/students */
 router.post('/', authorize('Administrator', 'Class Advisor'), studentController.create);
 
+/** POST /api/v1/students/import — bulk import from parsed CSV/Excel rows */
+router.post('/import', authorize('Administrator', 'Class Advisor'), studentController.importStudents);
+
 /** PATCH /api/v1/students/:id */
 router.patch('/:id', authorize('Administrator', 'Class Advisor'), studentController.update);
 

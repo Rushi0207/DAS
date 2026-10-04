@@ -109,6 +109,53 @@ async function deactivateStudent(id) {
   return safeStudent(updated);
 }
 
+/**
+ * Bulk import students from a parsed array.
+ * Each row: { firstName, lastName, studentId, email? }
+ *
+ * Skips rows where studentId already exists (returns them as skipped).
+ * Returns { created, skipped, errors }.
+ */
+async function importStudents(rows) {
+  const created = [];
+  const skipped = [];
+  const errors  = [];
+
+  for (const row of rows) {
+    const { firstName, lastName, studentId, email } = row;
+
+    if (!firstName || !lastName || !studentId) {
+      errors.push({ studentId: studentId ?? '?', reason: 'Missing required fields (firstName, lastName, studentId)' });
+      continue;
+    }
+
+    const existing = await prisma.student.findUnique({ where: { studentId } });
+    if (existing) {
+      skipped.push({ studentId, reason: 'Student ID already exists' });
+      continue;
+    }
+
+    if (email) {
+      const byEmail = await prisma.student.findUnique({ where: { email } });
+      if (byEmail) {
+        skipped.push({ studentId, reason: 'Email already in use' });
+        continue;
+      }
+    }
+
+    try {
+      const student = await prisma.student.create({
+        data: { firstName, lastName, studentId, email: email ?? null, isActive: true },
+      });
+      created.push(safeStudent(student));
+    } catch (e) {
+      errors.push({ studentId, reason: e.message });
+    }
+  }
+
+  return { created, skipped, errors };
+}
+
 module.exports = {
   getAllStudents,
   getStudentById,
@@ -116,4 +163,6 @@ module.exports = {
   createStudent,
   updateStudent,
   deactivateStudent,
+  importStudents,
 };
+

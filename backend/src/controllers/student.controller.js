@@ -86,4 +86,34 @@ async function deactivate(req, res, next) {
   } catch (err) { next(err); }
 }
 
-module.exports = { getAll, getById, create, update, deactivate };
+const importRowSchema = z.object({
+  firstName: z.string().min(1).max(100),
+  lastName:  z.string().min(1).max(100),
+  studentId: z.string().min(1).max(50),
+  email:     z.string().email().optional().or(z.literal('')),
+})
+
+async function importStudents(req, res, next) {
+  try {
+    const { rows } = req.body
+    if (!Array.isArray(rows) || rows.length === 0) {
+      throw new AppError('rows must be a non-empty array', 422, 'VALIDATION_ERROR')
+    }
+    if (rows.length > 500) {
+      throw new AppError('Maximum 500 rows per import', 422, 'IMPORT_TOO_LARGE')
+    }
+
+    // Sanitise each row — strip empty email so it becomes undefined
+    const sanitised = rows.map(r => ({
+      firstName: String(r.firstName ?? '').trim(),
+      lastName:  String(r.lastName  ?? '').trim(),
+      studentId: String(r.studentId ?? '').trim(),
+      email:     String(r.email     ?? '').trim() || undefined,
+    }))
+
+    const result = await studentService.importStudents(sanitised)
+    res.status(200).json({ success: true, data: result })
+  } catch (err) { next(err) }
+}
+
+module.exports = { getAll, getById, create, update, deactivate, importStudents };
