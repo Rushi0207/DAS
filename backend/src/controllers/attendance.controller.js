@@ -99,6 +99,18 @@ async function getStudentSummary(req, res, next) {
   } catch (err) { next(err); }
 }
 
+async function updateRecord(req, res, next) {
+  try {
+    const recordId = parseId(req.params.recordId);
+    const { status } = req.body;
+    if (status !== 'PRESENT' && status !== 'ABSENT') {
+      throw new AppError('status must be PRESENT or ABSENT', 422, 'VALIDATION_ERROR');
+    }
+    const record = await attendanceService.updateAttendanceRecord(recordId, status, req.user);
+    res.status(200).json({ success: true, data: { record } });
+  } catch (err) { next(err); }
+}
+
 module.exports = {
   createSession,
   submitAttendance,
@@ -106,4 +118,5 @@ module.exports = {
   getSession,
   getAttendanceRecords,
   getStudentSummary,
+  updateRecord,
 };

@@ -317,4 +317,33 @@ module.exports = {
   listSessions,
   getAttendanceBySession,
   getStudentAttendanceSummary,
+  updateAttendanceRecord,
 };
+
+async function updateAttendanceRecord(recordId, status, requestingUser) {
+  const record = await prisma.attendanceRecord.findUnique({
+    where: { id: recordId },
+    include: {
+      session: {
+        include: { teacher: true },
+      },
+    },
+  });
+
+  if (!record) throw new AppError('Attendance record not found', 404, 'RECORD_NOT_FOUND');
+
+  if (requestingUser.role !== 'Administrator') {
+    const teacher = await resolveTeacherFromUserId(requestingUser.id);
+    if (record.session.teacherId !== teacher.id) {
+      throw new AppError('You can only edit records for your own sessions', 403, 'FORBIDDEN');
+    }
+  }
+
+  const updated = await prisma.attendanceRecord.update({
+    where: { id: recordId },
+    data: { status },
+    include: RECORD_INCLUDE,
+  });
+
+  return safeRecord(updated);
+}

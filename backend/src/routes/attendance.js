@@ -75,4 +75,10 @@ router.get(
   attendanceController.getStudentSummary,
 );
 
+router.patch(
+  '/records/:recordId',
+  authorize('Administrator', 'Class Advisor', 'Subject Teacher'),
+  attendanceController.updateRecord,
+);
+
 module.exports = router;
